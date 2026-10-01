@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Berrylicious Orders</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f3f4f6; }
+        .mode-outward { --primary: #f97316; --primary-hover: #ea580c; --bg-accent: #fff7ed; }
+        .mode-inward { --primary: #3b82f6; --primary-hover: #2563eb; --bg-accent: #eff6ff; }
+        
+        .theme-bg { background-color: var(--primary); }
+        .theme-text { color: var(--primary); }
+        .theme-border { border-color: var(--primary); }
+        .theme-btn:hover { background-color: var(--primary-hover); }
+        .theme-accent { background-color: var(--bg-accent); }
+
+        /* Courier Badges */
+        .badge-myntra { background-color: #d946ef; color: #ffffff; }
+        .badge-flipkart { background-color: #fde047; color: #1e3a8a; }
+        .badge-shadowfax { background-color: #374151; color: #ffffff; }
+        .badge-valmo { background-color: #ec4899; color: #ffffff; }
+        .badge-elasticrun { background-color: #10b981; color: #ffffff; }
+        .badge-shiprocket { background-color: #14b8a6; color: #ffffff; }
+        .badge-bluedart { background-color: #1d4ed8; color: #ffffff; }
+        .badge-ats { background-color: #f59e0b; color: #ffffff; }
+        .badge-delhivery { background-color: #ef4444; color: #ffffff; }
+        .badge-xpressbees { background-color: #eab308; color: #ffffff; }
+        .badge-buffer { background-color: #9ca3af; color: #ffffff; }
+    </style>
+</head>
+<body class="mode-outward min-h-screen flex flex-col transition-colors duration-300">
+
+    <!-- Header -->
+    <header class="theme-bg text-white shadow-md transition-colors duration-300">
+        <div class="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8 flex justify-between items-center">
+            <h1 class="text-2xl font-bold tracking-tight">Warehouse Scanner Pro</h1>
+            <div class="flex items-center space-x-6">
+                <span id="sync-status" class="text-xs bg-yellow-400 text-gray-900 font-bold px-2.5 py-1 rounded-full">⚡ Ready</span>
+                <div class="flex space-x-4 text-sm font-medium">
+                    <span class="bg-white/20 px-3 py-1 rounded-full">Outward: <span id="outward-count">0</span></span>
+                    <span class="bg-white/20 px-3 py-1 rounded-full">Inward: <span id="inward-count">0</span></span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-grow max-w-7xl mx-auto px-4 py-8 w-full grid grid-cols-1 lg:grid-cols-3 gap-8">
+        
+        <!-- Left Column: Controls & Input -->
+        <div class="lg:col-span-1 space-y-6">
+            <!-- Mode Selector -->
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                <div class="flex w-full">
+                    <button id="btn-outward" onclick="setMode('outward')" class="flex-1 py-4 text-center font-bold text-lg border-b-4 border-orange-500 bg-orange-50 text-orange-700 transition-all">
+                        📦 OUTWARD (Handover)
+                    </button>
+                    <button id="btn-inward" onclick="setMode('inward')" class="flex-1 py-4 text-center font-bold text-lg border-b-4 border-transparent text-gray-500 hover:bg-gray-50 transition-all">
+                        📥 INWARD (Returns)
+                    </button>
+                </div>
+            </div>
+
+            <!-- Scanner Input -->
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 theme-accent transition-colors duration-300">
+                
+                <!-- Seller Dropdown -->
+                <div id="seller-container" class="mb-5">
+                    <label for="seller-select" class="block text-sm font-semibold text-gray-700 mb-2">Active Marketplace / Seller</label>
+                    <select id="seller-select" class="w-full text-lg p-3 border-2 theme-border rounded-lg focus:outline-none focus:ring-4 focus:ring-opacity-50 transition-all shadow-inner bg-white cursor-pointer font-medium">
+                        <option value="Flipkart">Flipkart</option>
+                        <option value="Myntra">Myntra</option>
+                        <option value="Meesho">Meesho</option>
+                        <option value="Amazon">Amazon</option>
+                        <option value="Ajio">Ajio</option>
+                        <option value="Nykaa">Nykaa</option>
+                        <option value="TataCliq">TataCliq</option>
+                        <option value="LimeRoad">LimeRoad</option>
+                        <option value="Shopify">Shopify</option>
+                        <option value="Wishlink">Wishlink</option>
+                    </select>
+                </div>
+
+                <label for="awb-input" class="block text-sm font-semibold text-gray-700 mb-2">Scan or Type AWB Number</label>
+                <input type="text" id="awb-input" autocomplete="off" placeholder="Ready to scan..." 
+                    oninput="this.value = this.value.replace(/[^a-zA-Z0-9|]/g, '')"
+                    class="w-full text-2xl p-4 border-2 theme-border rounded-lg focus:outline-none focus:ring-4 focus:ring-opacity-50 transition-all uppercase font-mono shadow-inner">
+                <p id="scan-message" class="mt-3 text-sm font-medium h-5 text-gray-600"></p>
+            </div>
+
+            <!-- Courier Breakdown Stats -->
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <h3 class="text-sm font-semibold text-gray-700 mb-4 uppercase tracking-wider">Current Courier Breakdown</h3>
+                <div id="courier-stats" class="space-y-3">
+                    <p class="text-gray-400 text-sm italic">No scans yet in this mode.</p>
+                </div>
+            </div>
+
+            <!-- Actions -->
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <button onclick="exportCSV()" class="w-full theme-bg text-white font-bold py-3 px-4 rounded-lg shadow-sm theme-btn transition-colors mb-3 flex items-center justify-center">
+                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                    Export Active List to CSV
+                </button>
+                <button onclick="clearActiveList()" class="w-full bg-white border border-gray-300 text-gray-700 font-bold py-3 px-4 rounded-lg shadow-sm hover:bg-gray-50 transition-colors">
+                    Clear Active List
+                </button>
+            </div>
+        </div>
+
+        <!-- Right Column: Scan History -->
+        <div class="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col h-[800px]">
+            <div class="p-6 border-b border-gray-100 flex justify-between items-center theme-accent transition-colors duration-300">
+                <h2 class="text-xl font-bold text-gray-800">Scan History: <span id="current-mode-label" class="theme-text">OUTWARD</span></h2>
+                <span id="active-list-count" class="bg-gray-800 text-white text-xs font-bold px-3 py-1 rounded-full">0 items</span>
+            </div>
+            
+            <div class="flex-grow overflow-y-auto p-4 bg-gray-50">
+                <ul id="scan-list" class="space-y-3">
+                    <!-- List items injected via JS -->
+                </ul>
+            </div>
+        </div>
+
+    </main>
+
+    <script>
+        // CONFIG: Updated Outward and Inward Google Apps Script Web App URLs
+        const OUTWARD_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwxi-YV_CIiujvmSgL-B4JIBrgTPzc85E1MlWZinzDHCYRD0ybw9643iYigZMWAZzmC2A/exec";
+        const INWARD_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyBA82voLHNAJ2cU44gcZGBvfj-XYsOzen2_Gl30M9-iVj4jtl8PWIGql-cJLvomjxk/exec";
+
+        let currentMode = 'outward'; 
+        let data = {
+            outward: JSON.parse(localStorage.getItem('warehouse_outward') || '[]'),
+            inward: JSON.parse(localStorage.getItem('warehouse_inward') || '[]')
+        };
+        
+        let pendingOutwardQueue = JSON.parse(localStorage.getItem('warehouse_outward_queue') || '[]');
+        let pendingInwardQueue = JSON.parse(localStorage.getItem('warehouse_inward_queue') || '[]');
+        let pendingDeletionsQueue = JSON.parse(localStorage.getItem('warehouse_deletions_queue') || '[]');
+
+        const awbInput = document.getElementById('awb-input');
+        const scanMessage = document.getElementById('scan-message');
+        const sellerContainer = document.getElementById('seller-container');
+        const sellerSelect = document.getElementById('seller-select');
+        const syncStatusEl = document.getElementById('sync-status');
+
+        const REGEX_NUM = /^\d{11,16}$/;
+        const REGEX_FK_MYN = /^[A-Z]{4}\d{10}$/; 
+        const REGEX_MEESHO = /^VL\d{13}$/; 
+        const REGEX_SF1 = /^SF[A-Z0-9]{10,13}$/;
+        const REGEX_SF2 = /^MYSFXHL[A-Z0-9]{10}$/;
+        const REGEX_ELASTIC = /^MH[A-Z0-9]{18}$/;
+        const REGEX_SHIPROCKET = /^GS[A-Z0-9]{10}$/;
+
+        function saveToLocalStorage() {
+            localStorage.setItem('warehouse_outward', JSON.stringify(data.outward));
+            localStorage.setItem('warehouse_inward', JSON.stringify(data.inward));
+            localStorage.setItem('warehouse_outward_queue', JSON.stringify(pendingOutwardQueue));
+            localStorage.setItem('warehouse_inward_queue', JSON.stringify(pendingInwardQueue));
+            localStorage.setItem('warehouse_deletions_queue', JSON.stringify(pendingDeletionsQueue));
+        }
+
+        function isValidAWB(awb) {
+            if (REGEX_NUM.test(awb) || REGEX_FK_MYN.test(awb) || REGEX_MEESHO.test(awb) || 
+                REGEX_SF1.test(awb) || REGEX_SF2.test(awb) || REGEX_ELASTIC.test(awb)) {
+                return true;
+            }
+            if (awb.startsWith('AJI') || awb.endsWith('AJI')) return true;
+            if (awb.startsWith('LM') || awb.endsWith('LI')) return true;
+            if (awb.startsWith('NK') || awb.endsWith('NYK')) return true;
+            if (awb.startsWith('CLQ')) return true;
+            if (REGEX_SHIPROCKET.test(awb)) return true;
+            return false;
+        }
+
+        function detectCourier(awb) {
+            const cleanAwb = awb.replace(/(NYK|AJI|LI)$/, '');
+            const len = cleanAwb.length;
+            
+            if (/[A-Z]/.test(cleanAwb)) {
+                if (cleanAwb.startsWith('SF') || cleanAwb.startsWith('MYSFXHL')) return { name: 'Shadowfax', class: 'badge-shadowfax' };
+                if (cleanAwb.startsWith('VL')) return { name: 'Valmo', class: 'badge-valmo' };
+                if (cleanAwb.startsWith('MH')) return { name: 'ElasticRun', class: 'badge-elasticrun' };
+                if (cleanAwb.startsWith('GS')) return { name: 'ShipRocket', class: 'badge-shiprocket' };
+                
+                if (cleanAwb.startsWith('MY')) return { name: 'Myntra Logistics', class: 'badge-myntra' };
+                if (cleanAwb.startsWith('CLQ')) return { name: 'E-Kart (TataCliq)', class: 'badge-flipkart' };
+                if (cleanAwb.startsWith('NK')) return { name: 'E-Kart (Nykaa)', class: 'badge-flipkart' };
+                if (cleanAwb.startsWith('LM')) return { name: 'E-Kart (LimeRoad)', class: 'badge-flipkart' }; 
+                if (cleanAwb.startsWith('FM')) return { name: 'E-Kart (Flipkart)', class: 'badge-flipkart' };
+                
+                const flipkartPrefixes = ['FMPP', 'FMPC', 'SRSC', 'SRSP', 'LMRP'];
+                if (flipkartPrefixes.some(prefix => cleanAwb.startsWith(prefix))) return { name: 'Flipkart / E-Kart', class: 'badge-flipkart' };
+            } 
+            else if (/^\d+$/.test(cleanAwb)) {
+                if (len === 11) return { name: 'BlueDart', class: 'badge-bluedart' };
+                if (len === 12) return { name: 'ATS', class: 'badge-ats' };
+                if (len === 13 || len === 16) return { name: 'Delhivery', class: 'badge-delhivery' };
+                if (len === 15) {
+                    if (cleanAwb.startsWith('134') || cleanAwb.startsWith('136') || cleanAwb.startsWith('141')) return { name: 'Xpressbees', class: 'badge-xpressbees' };
+                    return { name: 'Delhivery', class: 'badge-delhivery' };
+                }
+                if (len === 14) {
+                    if (cleanAwb.startsWith('168') || cleanAwb.startsWith('133') || cleanAwb.startsWith('372')) return { name: 'ATS', class: 'badge-ats' };
+                    if (cleanAwb.startsWith('134') || cleanAwb.startsWith('136') || cleanAwb.startsWith('141')) return { name: 'Xpressbees', class: 'badge-xpressbees' };
+                    return { name: 'Delhivery', class: 'badge-delhivery' };
+                }
+            }
+            return { name: 'Buffer', class: 'badge-buffer' };
+        }
+
+        function verifyMarketplaceMatch(awb, marketplace) {
+            const courierObj = detectCourier(awb);
+            const courierName = courierObj.name;
+
+            if (courierName === 'BlueDart' && ['Meesho', 'Flipkart', 'Myntra', 'Amazon'].includes(marketplace)) return false;
+            if (courierName === 'Valmo' && marketplace !== 'Meesho') return false;
+            if (courierName === 'Delhivery' && ['Flipkart', 'Myntra', 'Amazon'].includes(marketplace)) return false;
+            if (courierName === 'Xpressbees' && ['Flipkart', 'Myntra', 'Amazon'].includes(marketplace)) return false;
+            if (courierName === 'Shadowfax' && ['Amazon', 'Flipkart'].includes(marketplace)) return false;
+            if (courierName === 'ElasticRun' && marketplace !== 'Meesho') return false;
+            if (courierName === 'ATS' && marketplace !== 'Amazon') return false;
+
+            const isMyntraSig = awb.startsWith('MY') && !awb.startsWith('MYSFXHL');
+            const isFlipkartSig = awb.startsWith('FM') || awb.startsWith('FMPP') || awb.startsWith('FMPC');
+            const isValmoSig = awb.startsWith('VL');
+            const isAmazonSig = /^\d{12}$/.test(awb);
+
+            if (marketplace === 'Flipkart' && (isMyntraSig || isValmoSig || isAmazonSig)) return false;
+            if (marketplace === 'Myntra' && (isFlipkartSig || isValmoSig || isAmazonSig)) return false;
+            if (marketplace === 'Meesho' && (isFlipkartSig || isMyntraSig || isAmazonSig)) return false;
+            if (marketplace === 'Amazon' && !isAmazonSig) return false;
+
+            return true;
+        }
+
+        function setMode(mode) {
+            currentMode = mode;
+            document.body.className = `mode-${mode} min-h-screen flex flex-col transition-colors duration-300`;
+            
+            const btnOutward = document.getElementById('btn-outward');
+            const btnInward = document.getElementById('btn-inward');
+            
+            if (mode === 'outward') {
+                btnOutward.className = "flex-1 py-4 text-center font-bold text-lg border-b-4 border-orange-500 bg-orange-50 text-orange-700 transition-all";
+                btnInward.className = "flex-1 py-4 text-center font-bold text-lg border-b-4 border-transparent text-gray-500 hover:bg-gray-50 transition-all";
+                document.getElementById('current-mode-label').innerText = "OUTWARD";
+                sellerContainer.style.display = 'block'; 
+            } else {
+                btnInward.className = "flex-1 py-4 text-center font-bold text-lg border-b-4 border-blue-500 bg-blue-50 text-blue-700 transition-all";
+                btnOutward.className = "flex-1 py-4 text-center font-bold text-lg border-b-4 border-transparent text-gray-500 hover:bg-gray-50 transition-all";
+                document.getElementById('current-mode-label').innerText = "INWARD";
+                sellerContainer.style.display = 'none'; 
+            }
+
+            renderList();
+            renderStats();
+            awbInput.focus();
+        }
+
+        // Handle Scan Input
+        awbInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                let rawData = this.value.toUpperCase(); 
+                let splitData = rawData.split('|')[0];
+                let awb = splitData.replace(/[^A-Z0-9]/g, "").trim();
+
+                if (awb === '') return;
+
+                if (!isValidAWB(awb)) {
+                    playSound('error');
+                    alert('Invalid Scan: Please scan a valid courier AWB. (SKUs are not allowed).');
+                    this.value = '';
+                    this.focus();
+                    return;
+                }
+
+                const currentSelectedMarketplace = sellerSelect.value;
+
+                if (currentMode === 'outward') {
+                    if (!verifyMarketplaceMatch(awb, currentSelectedMarketplace)) {
+                        playSound('error');
+                        alert(`Cross-Verification Failed:\n\nThis AWB format does not match the active Marketplace (${currentSelectedMarketplace}).`);
+                        this.value = '';
+                        this.focus();
+                        return;
+                    }
+                }
+
+                const existsInCurrent = data[currentMode].some(item => item.awb === awb);
+                if (existsInCurrent) {
+                    showMessage(`❌ Duplicate Scan: ${awb} already in ${currentMode.toUpperCase()}`, 'text-red-600');
+                    playSound('error');
+                    this.value = '';
+                    this.focus();
+                    return;
+                }
+
+                let customMessage = `✅ Success: ${awb}`;
+                let messageColor = 'text-green-600';
+                let finalSeller = currentMode === 'outward' ? currentSelectedMarketplace : "N/A";
+
+                if (currentMode === 'inward') {
+                    const existsInOutwardIndex = data.outward.findIndex(item => item.awb === awb);
+                    if (existsInOutwardIndex !== -1) {
+                        finalSeller = data.outward[existsInOutwardIndex].seller;
+                        
+                        data.outward.splice(existsInOutwardIndex, 1);
+                        pendingDeletionsQueue.push(awb);
+
+                        customMessage = `🔄 Recovered & Deleted from Outward: ${awb}`;
+                        messageColor = 'text-blue-600';
+                    } else {
+                        if (awb.startsWith('MY') && !awb.startsWith('MYSFXHL')) finalSeller = 'Myntra';
+                        else if (awb.startsWith('FM') || awb.startsWith('FMPP')) finalSeller = 'Flipkart';
+                        else if (awb.startsWith('VL')) finalSeller = 'Meesho';
+                        else if (/^\d{12}$/.test(awb)) finalSeller = 'Amazon';
+                        else if (awb.startsWith('AJI') || awb.endsWith('AJI')) finalSeller = 'Ajio';
+                        else if (awb.startsWith('LM') || awb.endsWith('LI')) finalSeller = 'LimeRoad';
+                        else if (awb.startsWith('NK') || awb.endsWith('NYK')) finalSeller = 'Nykaa';
+                        else if (awb.startsWith('CLQ')) finalSeller = 'TataCliq';
+                    }
+                }
+
+                const courierInfo = detectCourier(awb);
+
+                if (currentMode === 'outward') {
+                    if (awb.startsWith('AJI') || awb.endsWith('AJI')) sellerSelect.value = 'Ajio';
+                    else if (awb.startsWith('LM') || awb.endsWith('LI')) sellerSelect.value = 'LimeRoad';
+                    else if (awb.startsWith('NK') || awb.endsWith('NYK')) sellerSelect.value = 'Nykaa';
+                    else if (courierInfo.name === 'Myntra Logistics') sellerSelect.value = 'Myntra';
+                    else if (courierInfo.name.includes('TataCliq')) sellerSelect.value = 'TataCliq';
+                    else if (courierInfo.name.includes('Nykaa')) sellerSelect.value = 'Nykaa';
+                    else if (courierInfo.name.includes('Flipkart')) sellerSelect.value = 'Flipkart';
+                    else if (courierInfo.name === 'Valmo' || courierInfo.name === 'ElasticRun') sellerSelect.value = 'Meesho';
+                    else if (courierInfo.name === 'ATS') sellerSelect.value = 'Amazon';
+                    
+                    finalSeller = sellerSelect.value;
+
+                    if (finalSeller === 'Amazon' && courierInfo.name !== 'ATS') {
+                        playSound('error');
+                        alert('Mismatch: Amazon seller can only accept ATS (Amazon Shipping) barcodes.');
+                        this.value = '';
+                        this.focus();
+                        return;
+                    }
+                }
+
+                const now = new Date();
+                const formattedDate = now.toLocaleDateString(); 
+                const formattedTime = now.toLocaleTimeString(); 
+
+                const newScanItem = {
+                    date: formattedDate,
+                    seller: finalSeller,
+                    awb: awb,
+                    courier: courierInfo.name,
+                    time: formattedTime
+                };
+
+                data[currentMode].unshift(newScanItem);
+
+                if (currentMode === 'outward') {
+                    pendingOutwardQueue.push(newScanItem);
+                } else {
+                    pendingInwardQueue.push(newScanItem);
+                }
+
+                saveToLocalStorage();
+
+                renderList();
+                renderStats();
+                updateGlobalCounts();
+
+                showMessage(customMessage, messageColor);
+                playSound('success');
+
+                this.value = '';
+                this.focus();
+            }
+        });
+
+        async function backgroundSyncWorker() {
+            let totalPending = pendingOutwardQueue.length + pendingInwardQueue.length + pendingDeletionsQueue.length;
+            if (totalPending === 0) return;
+
+            syncStatusEl.innerText = `🔄 Syncing (${totalPending})...`;
+            syncStatusEl.className = "text-xs bg-blue-400 text-white font-bold px-2.5 py-1 rounded-full animate-pulse";
+
+            if (pendingDeletionsQueue.length > 0 && OUTWARD_SCRIPT_URL) {
+                let delBatch = [...pendingDeletionsQueue];
+                for (let i = 0; i < delBatch.length; i++) {
+                    try {
+                        await fetch(OUTWARD_SCRIPT_URL, {
+                            method: 'POST',
+                            mode: 'no-cors',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ action: "DELETE_AWB", awb: delBatch[i] })
+                        });
+                        pendingDeletionsQueue.shift();
+                    } catch (err) { console.warn("Deletion sync error:", err); break; }
+                }
+            }
+
+            if (pendingOutwardQueue.length > 0 && OUTWARD_SCRIPT_URL) {
+                let outwardBatch = [...pendingOutwardQueue];
+                try {
+                    await fetch(OUTWARD_SCRIPT_URL, {
+                        method: 'POST',
+                        mode: 'no-cors',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ scans: outwardBatch })
+                    });
+                    pendingOutwardQueue = pendingOutwardQueue.slice(outwardBatch.length);
+                } catch (err) { console.warn("Outward sync error:", err); }
+            }
+
+            if (pendingInwardQueue.length > 0 && INWARD_SCRIPT_URL) {
+                let inwardBatch = [...pendingInwardQueue];
+                try {
+                    await fetch(INWARD_SCRIPT_URL, {
+                        method: 'POST',
+                        mode: 'no-cors',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ scans: inwardBatch })
+                    });
+                    pendingInwardQueue = pendingInwardQueue.slice(inwardBatch.length);
+                } catch (err) { console.warn("Inward sync error:", err); }
+            }
+
+            saveToLocalStorage();
+
+            let remainingPending = pendingOutwardQueue.length + pendingInwardQueue.length + pendingDeletionsQueue.length;
+            if (remainingPending === 0) {
+                syncStatusEl.innerText = "☁️ Synced";
+                syncStatusEl.className = "text-xs bg-green-500 text-white font-bold px-2.5 py-1 rounded-full";
+            } else {
+                syncStatusEl.innerText = `⏳ Offline (${remainingPending} queued)`;
+                syncStatusEl.className = "text-xs bg-yellow-400 text-gray-900 font-bold px-2.5 py-1 rounded-full";
+            }
+        }
+
+        setInterval(backgroundSyncWorker, 4000);
+
+        function renderList() {
+            const listEl = document.getElementById('scan-list');
+            const currentData = data[currentMode];
+            
+            document.getElementById('active-list-count').innerText = `${currentData.length} items`;
+            listEl.innerHTML = '';
+
+            if (currentData.length === 0) {
+                listEl.innerHTML = `
+                    <div class="flex flex-col items-center justify-center h-full py-20 text-gray-400">
+                        <svg class="w-16 h-16 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
+                        <p class="text-lg font-medium">No scans yet.</p>
+                        <p class="text-sm">Start scanning AWB barcodes to populate this list.</p>
+                    </div>`;
+                return;
+            }
+
+            currentData.forEach((item, index) => {
+                const li = document.createElement('li');
+                li.className = "bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex justify-between items-center hover:border-gray-300 transition-colors";
+                
+                const sellerHtml = (item.seller && item.seller !== 'N/A') 
+                    ? `<span class="bg-gray-100 text-gray-600 px-2 py-1 rounded text-xs font-bold mr-3 border border-gray-200">🛒 ${item.seller}</span>` 
+                    : '';
+
+                li.innerHTML = `
+                    <div class="flex items-center space-x-4">
+                        <span class="text-gray-400 font-mono text-sm w-8">#${currentData.length - index}</span>
+                        <div class="flex flex-col">
+                            <span class="text-xl font-bold font-mono text-gray-800">${item.awb}</span>
+                            <span class="text-xs text-gray-500">${item.date} - ${item.time}</span>
+                        </div>
+                    </div>
+                    <div class="flex items-center">
+                        ${sellerHtml}
+                        <span class="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${item.badgeClass}">
+                            ${item.courier}
+                        </span>
+                    </div>
+                `;
+                listEl.appendChild(li);
+            });
+        }
+
+        function renderStats() {
+            const statsEl = document.getElementById('courier-stats');
+            const currentData = data[currentMode];
+            
+            if (currentData.length === 0) {
+                statsEl.innerHTML = '<p class="text-gray-400 text-sm italic">No scans yet in this mode.</p>';
+                return;
+            }
+
+            const counts = {};
+            currentData.forEach(item => {
+                if(!counts[item.courier]) counts[item.courier] = { count: 0, badgeClass: item.badgeClass };
+                counts[item.courier].count++;
+            });
+
+            statsEl.innerHTML = '';
+            for (const [courier, info] of Object.entries(counts)) {
+                statsEl.innerHTML += `
+                    <div class="flex justify-between items-center border-b border-gray-100 pb-2 last:border-0 last:pb-0">
+                        <div class="flex items-center space-x-2">
+                            <span class="w-3 h-3 rounded-full ${info.badgeClass}"></span>
+                            <span class="text-sm font-medium text-gray-700">${courier}</span>
+                        </div>
+                        <span class="font-bold text-gray-900 bg-gray-100 px-2 py-1 rounded">${info.count}</span>
+                    </div>
+                `;
+            }
+        }
+
+        function clearActiveList() {
+            if(confirm(`Are you sure you want to clear all ${currentMode} scans?`)) {
+                data[currentMode] = [];
+                saveToLocalStorage();
+                renderList();
+                renderStats();
+                updateGlobalCounts();
+            }
+            awbInput.focus();
+        }
+
+        function updateGlobalCounts() {
+            document.getElementById('outward-count').innerText = data.outward.length;
+            document.getElementById('inward-count').innerText = data.inward.length;
+        }
+
+        function showMessage(msg, colorClass) {
+            scanMessage.innerText = msg;
+            scanMessage.className = `mt-3 text-sm font-bold h-5 ${colorClass}`;
+            setTimeout(() => { scanMessage.innerText = ''; }, 3500);
+        }
+
+        function playSound(type) {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+
+            if (type === 'success') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(800, ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.1);
+                gain.gain.setValueAtTime(0.1, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
+                osc.start(ctx.currentTime);
+                osc.stop(ctx.currentTime + 0.1);
+            } else {
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(300, ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.2);
+                gain.gain.setValueAtTime(0.2, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2);
+                osc.start(ctx.currentTime);
+                osc.stop(ctx.currentTime + 0.2);
+            }
+        }
+
+        function exportCSV() {
+            const currentData = data[currentMode];
+            if (currentData.length === 0) {
+                alert('No data to export.');
+                return;
+            }
+
+            let csvContent = "data:text/csv;charset=utf-8,";
+            csvContent += "Serial Number,Date,Channel,Courier,AWB,Time\n"; 
+
+            currentData.forEach((item, idx) => {
+                let sNo = currentData.length - idx;
+                csvContent += `${sNo},${item.date},${item.seller || 'N/A'},${item.courier},${item.awb},${item.time}\n`;
+            });
+
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", `warehouse_scans_${currentMode}_${new Date().toISOString().split('T')[0]}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            awbInput.focus();
+        }
+
+        window.onload = () => {
+            setMode('outward');
+            updateGlobalCounts();
+        };
+    </script>
+</body>
+</html>
