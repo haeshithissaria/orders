@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Berrylicious Orders</title>
+    <title>Warehouse Scanner Pro</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f3f4f6; }
@@ -35,7 +35,7 @@
     <!-- Header -->
     <header class="theme-bg text-white shadow-md transition-colors duration-300">
         <div class="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8 flex justify-between items-center">
-            <h1 class="text-2xl font-bold tracking-tight">Berrylicious Orders Management</h1>
+            <h1 class="text-2xl font-bold tracking-tight">Warehouse Scanner Pro</h1>
             <div class="flex items-center space-x-3">
                 <button onclick="switchView('scanner')" id="nav-scanner-btn" class="bg-white text-gray-800 text-sm font-bold px-4 py-2 rounded-lg shadow-sm transition-all">📦 Scanner</button>
                 <button onclick="switchView('reports')" id="nav-reports-btn" class="bg-white/20 hover:bg-white/30 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-all">📊 Reports & Search</button>
@@ -63,6 +63,17 @@
                         📥 INWARD (Returns)
                     </button>
                 </div>
+            </div>
+
+            <!-- Session Counter Widget -->
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4 flex justify-between items-center">
+                <div>
+                    <span class="text-xs font-bold text-gray-500 uppercase tracking-wider">Session Counter</span>
+                    <div class="text-2xl font-black text-gray-800" id="session-count">0</div>
+                </div>
+                <button onclick="resetSessionCount()" class="bg-gray-100 hover:bg-red-50 text-gray-600 hover:text-red-600 text-xs font-bold px-3 py-2 rounded-lg border border-gray-200 transition-colors">
+                    🔄 Reset Session
+                </button>
             </div>
 
             <!-- Scanner Input -->
@@ -181,12 +192,14 @@
         let pendingOutwardQueue = JSON.parse(localStorage.getItem('warehouse_outward_queue') || '[]');
         let pendingInwardQueue = JSON.parse(localStorage.getItem('warehouse_inward_queue') || '[]');
         let pendingDeletionsQueue = JSON.parse(localStorage.getItem('warehouse_deletions_queue') || '[]');
+        let sessionCount = parseInt(localStorage.getItem('warehouse_session_count') || '0');
 
         const awbInput = document.getElementById('awb-input');
         const scanMessage = document.getElementById('scan-message');
         const sellerContainer = document.getElementById('seller-container');
         const sellerSelect = document.getElementById('seller-select');
         const syncStatusEl = document.getElementById('sync-status');
+        const sessionCountEl = document.getElementById('session-count');
 
         const REGEX_NUM = /^\d{11,16}$/;
         const REGEX_FK_MYN = /^[A-Z]{4}\d{10}$/; 
@@ -202,6 +215,7 @@
             localStorage.setItem('warehouse_outward_queue', JSON.stringify(pendingOutwardQueue));
             localStorage.setItem('warehouse_inward_queue', JSON.stringify(pendingInwardQueue));
             localStorage.setItem('warehouse_deletions_queue', JSON.stringify(pendingDeletionsQueue));
+            localStorage.setItem('warehouse_session_count', sessionCount);
         }
 
         function switchView(view) {
@@ -221,6 +235,14 @@
                 reportsView.classList.remove('hidden');
                 navReportsBtn.className = "bg-white text-gray-800 text-sm font-bold px-4 py-2 rounded-lg shadow-sm transition-all";
                 navScannerBtn.className = "bg-white/20 hover:bg-white/30 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-all";
+            }
+        }
+
+        function resetSessionCount() {
+            if (confirm("Are you sure you want to reset the session count to 0?")) {
+                sessionCount = 0;
+                saveToLocalStorage();
+                sessionCountEl.innerText = sessionCount;
             }
         }
 
@@ -412,12 +434,16 @@
                 const formattedDate = now.toLocaleDateString(); 
                 const formattedTime = now.toLocaleTimeString(); 
 
+                sessionCount++;
+                sessionCountEl.innerText = sessionCount;
+
                 const newScanItem = {
                     date: formattedDate,
                     seller: finalSeller,
                     awb: awb,
                     courier: courierInfo.name,
-                    time: formattedTime
+                    time: formattedTime,
+                    synced: false // Initially pending sync
                 };
 
                 data[currentMode].unshift(newScanItem);
@@ -440,6 +466,207 @@
                 this.focus();
             }
         });
+
+        // Background Auto-Sync Worker
+        async function backgroundSyncWorker() {
+            let totalPending = pendingOutwardQueue.length + pendingInwardQueue.length + pendingDeletionsQueue.length;
+            if (totalPending === 0) return;
+
+            syncStatusEl.innerText = `🔄 Syncing (${totalPending})...`;
+            syncStatusEl.className = "text-xs bg-blue-400 text-white font-bold px-2.5 py-1 rounded-full animate-pulse";
+
+            if (pendingDeletionsQueue.length > 0 && OUTWARD_SCRIPT_URL) {
+                let delBatch = [...pendingDeletionsQueue];
+                for (let i = 0; i < delBatch.length; i++) {
+                    try {
+                        await fetch(OUTWARD_SCRIPT_URL, {
+                            method: 'POST',
+                            mode: 'no-cors',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ action: "DELETE_AWB", awb: delBatch[i] })
+                        });
+                        pendingDeletionsQueue.shift();
+                    } catch (err) { break; }
+                }
+            }
+
+            if (pendingOutwardQueue.length > 0 && OUTWARD_SCRIPT_URL) {
+                let outwardBatch = [...pendingOutwardQueue];
+                try {
+                    await fetch(OUTWARD_SCRIPT_URL, {
+                        method: 'POST',
+                        mode: 'no-cors',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ scans: outwardBatch })
+                    });
+                    
+                    // Mark matching items as synced in local memory
+                    data.outward.forEach(item => {
+                        if (outwardBatch.some(b => b.awb === item.awb)) item.synced = true;
+                    });
+                    pendingOutwardQueue = pendingOutwardQueue.slice(outwardBatch.length);
+                } catch (err) { }
+            }
+
+            if (pendingInwardQueue.length > 0 && INWARD_SCRIPT_URL) {
+                let inwardBatch = [...pendingInwardQueue];
+                try {
+                    await fetch(INWARD_SCRIPT_URL, {
+                        method: 'POST',
+                        mode: 'no-cors',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ scans: inwardBatch })
+                    });
+                    
+                    data.inward.forEach(item => {
+                        if (inwardBatch.some(b => b.awb === item.awb)) item.synced = true;
+                    });
+                    pendingInwardQueue = pendingInwardQueue.slice(inwardBatch.length);
+                } catch (err) { }
+            }
+
+            saveToLocalStorage();
+            renderList();
+
+            let remainingPending = pendingOutwardQueue.length + pendingInwardQueue.length + pendingDeletionsQueue.length;
+            if (remainingPending === 0) {
+                syncStatusEl.innerText = "☁️ Synced";
+                syncStatusEl.className = "text-xs bg-green-500 text-white font-bold px-2.5 py-1 rounded-full";
+            } else {
+                syncStatusEl.innerText = `⏳ Offline (${remainingPending} queued)`;
+                syncStatusEl.className = "text-xs bg-yellow-400 text-gray-900 font-bold px-2.5 py-1 rounded-full";
+            }
+        }
+
+        setInterval(backgroundSyncWorker, 4000);
+
+        function renderList() {
+            const listEl = document.getElementById('scan-list');
+            const currentData = data[currentMode];
+            
+            document.getElementById('active-list-count').innerText = `${currentData.length} items`;
+            listEl.innerHTML = '';
+
+            if (currentData.length === 0) {
+                listEl.innerHTML = `
+                    <div class="flex flex-col items-center justify-center h-full py-20 text-gray-400">
+                        <svg class="w-16 h-16 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
+                        <p class="text-lg font-medium">No scans yet.</p>
+                        <p class="text-sm">Start scanning AWB barcodes to populate this list.</p>
+                    </div>`;
+                return;
+            }
+
+            currentData.forEach((item, index) => {
+                const li = document.createElement('li');
+                li.className = "bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex justify-between items-center hover:border-gray-300 transition-colors";
+                
+                const sellerHtml = (item.seller && item.seller !== 'N/A') 
+                    ? `<span class="bg-gray-100 text-gray-600 px-2 py-1 rounded text-xs font-bold mr-3 border border-gray-200">🛒 ${item.seller}</span>` 
+                    : '';
+
+                const syncBadge = item.synced 
+                    ? `<span class="text-[10px] bg-green-100 text-green-700 font-bold px-2 py-0.5 rounded-full ml-2">☁️ Synced</span>` 
+                    : `<span class="text-[10px] bg-amber-100 text-amber-700 font-bold px-2 py-0.5 rounded-full ml-2 animate-pulse">⏳ Pending</span>`;
+
+                li.innerHTML = `
+                    <div class="flex items-center space-x-4">
+                        <span class="text-gray-400 font-mono text-sm w-8">#${currentData.length - index}</span>
+                        <div class="flex flex-col">
+                            <div class="flex items-center">
+                                <span class="text-xl font-bold font-mono text-gray-800">${item.awb}</span>
+                                ${syncBadge}
+                            </div>
+                            <span class="text-xs text-gray-500">${item.date} - ${item.time}</span>
+                        </div>
+                    </div>
+                    <div class="flex items-center">
+                        ${sellerHtml}
+                        <span class="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${item.badgeClass || 'badge-buffer'}">
+                            ${item.courier}
+                        </span>
+                    </div>
+                `;
+                listEl.appendChild(li);
+            });
+        }
+
+        function renderStats() {
+            const statsEl = document.getElementById('courier-stats');
+            const currentData = data[currentMode];
+            
+            if (currentData.length === 0) {
+                statsEl.innerHTML = '<p class="text-gray-400 text-sm italic">No scans yet in this mode.</p>';
+                return;
+            }
+
+            const counts = {};
+            currentData.forEach(item => {
+                if(!counts[item.courier]) counts[item.courier] = { count: 0, badgeClass: item.badgeClass };
+                counts[item.courier].count++;
+            });
+
+            statsEl.innerHTML = '';
+            for (const [courier, info] of Object.entries(counts)) {
+                statsEl.innerHTML += `
+                    <div class="flex justify-between items-center border-b border-gray-100 pb-2 last:border-0 last:pb-0">
+                        <div class="flex items-center space-x-2">
+                            <span class="w-3 h-3 rounded-full ${info.badgeClass}"></span>
+                            <span class="text-sm font-medium text-gray-700">${courier}</span>
+                        </div>
+                        <span class="font-bold text-gray-900 bg-gray-100 px-2 py-1 rounded">${info.count}</span>
+                    </div>
+                `;
+            }
+        }
+
+        function clearActiveList() {
+            if(confirm(`Are you sure you want to clear all ${currentMode} scans?`)) {
+                data[currentMode] = [];
+                saveToLocalStorage();
+                renderList();
+                renderStats();
+                updateGlobalCounts();
+            }
+            awbInput.focus();
+        }
+
+        function updateGlobalCounts() {
+            document.getElementById('outward-count').innerText = data.outward.length;
+            document.getElementById('inward-count').innerText = data.inward.length;
+        }
+
+        function showMessage(msg, colorClass) {
+            scanMessage.innerText = msg;
+            scanMessage.className = `mt-3 text-sm font-bold h-5 ${colorClass}`;
+            setTimeout(() => { scanMessage.innerText = ''; }, 3500);
+        }
+
+        function playSound(type) {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+
+            if (type === 'success') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(800, ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.1);
+                gain.gain.setValueAtTime(0.1, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
+                osc.start(ctx.currentTime);
+                osc.stop(ctx.currentTime + 0.1);
+            } else {
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(300, ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.2);
+                gain.gain.setValueAtTime(0.2, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2);
+                osc.start(ctx.currentTime);
+                osc.stop(ctx.currentTime + 0.2);
+            }
+        }
 
         // AWB Lookup Logic
         function handleAWBLookup() {
@@ -527,217 +754,10 @@
             document.body.removeChild(link);
         }
 
-        async function backgroundSyncWorker() {
-            let totalPending = pendingOutwardQueue.length + pendingInwardQueue.length + pendingDeletionsQueue.length;
-            if (totalPending === 0) return;
-
-            syncStatusEl.innerText = `🔄 Syncing (${totalPending})...`;
-            syncStatusEl.className = "text-xs bg-blue-400 text-white font-bold px-2.5 py-1 rounded-full animate-pulse";
-
-            if (pendingDeletionsQueue.length > 0 && OUTWARD_SCRIPT_URL) {
-                let delBatch = [...pendingDeletionsQueue];
-                for (let i = 0; i < delBatch.length; i++) {
-                    try {
-                        await fetch(OUTWARD_SCRIPT_URL, {
-                            method: 'POST',
-                            mode: 'no-cors',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ action: "DELETE_AWB", awb: delBatch[i] })
-                        });
-                        pendingDeletionsQueue.shift();
-                    } catch (err) { console.warn("Deletion sync error:", err); break; }
-                }
-            }
-
-            if (pendingOutwardQueue.length > 0 && OUTWARD_SCRIPT_URL) {
-                let outwardBatch = [...pendingOutwardQueue];
-                try {
-                    await fetch(OUTWARD_SCRIPT_URL, {
-                        method: 'POST',
-                        mode: 'no-cors',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ scans: outwardBatch })
-                    });
-                    pendingOutwardQueue = pendingOutwardQueue.slice(outwardBatch.length);
-                } catch (err) { console.warn("Outward sync error:", err); }
-            }
-
-            if (pendingInwardQueue.length > 0 && INWARD_SCRIPT_URL) {
-                let inwardBatch = [...pendingInwardQueue];
-                try {
-                    await fetch(INWARD_SCRIPT_URL, {
-                        method: 'POST',
-                        mode: 'no-cors',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ scans: inwardBatch })
-                    });
-                    pendingInwardQueue = pendingInwardQueue.slice(inwardBatch.length);
-                } catch (err) { console.warn("Inward sync error:", err); }
-            }
-
-            saveToLocalStorage();
-
-            let remainingPending = pendingOutwardQueue.length + pendingInwardQueue.length + pendingDeletionsQueue.length;
-            if (remainingPending === 0) {
-                syncStatusEl.innerText = "☁️ Synced";
-                syncStatusEl.className = "text-xs bg-green-500 text-white font-bold px-2.5 py-1 rounded-full";
-            } else {
-                syncStatusEl.innerText = `⏳ Offline (${remainingPending} queued)`;
-                syncStatusEl.className = "text-xs bg-yellow-400 text-gray-900 font-bold px-2.5 py-1 rounded-full";
-            }
-        }
-
-        setInterval(backgroundSyncWorker, 4000);
-
-        function renderList() {
-            const listEl = document.getElementById('scan-list');
-            const currentData = data[currentMode];
-            
-            document.getElementById('active-list-count').innerText = `${currentData.length} items`;
-            listEl.innerHTML = '';
-
-            if (currentData.length === 0) {
-                listEl.innerHTML = `
-                    <div class="flex flex-col items-center justify-center h-full py-20 text-gray-400">
-                        <svg class="w-16 h-16 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
-                        <p class="text-lg font-medium">No scans yet.</p>
-                        <p class="text-sm">Start scanning AWB barcodes to populate this list.</p>
-                    </div>`;
-                return;
-            }
-
-            currentData.forEach((item, index) => {
-                const li = document.createElement('li');
-                li.className = "bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex justify-between items-center hover:border-gray-300 transition-colors";
-                
-                const sellerHtml = (item.seller && item.seller !== 'N/A') 
-                    ? `<span class="bg-gray-100 text-gray-600 px-2 py-1 rounded text-xs font-bold mr-3 border border-gray-200">🛒 ${item.seller}</span>` 
-                    : '';
-
-                li.innerHTML = `
-                    <div class="flex items-center space-x-4">
-                        <span class="text-gray-400 font-mono text-sm w-8">#${currentData.length - index}</span>
-                        <div class="flex flex-col">
-                            <span class="text-xl font-bold font-mono text-gray-800">${item.awb}</span>
-                            <span class="text-xs text-gray-500">${item.date} - ${item.time}</span>
-                        </div>
-                    </div>
-                    <div class="flex items-center">
-                        ${sellerHtml}
-                        <span class="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${item.badgeClass}">
-                            ${item.courier}
-                        </span>
-                    </div>
-                `;
-                listEl.appendChild(li);
-            });
-        }
-
-        function renderStats() {
-            const statsEl = document.getElementById('courier-stats');
-            const currentData = data[currentMode];
-            
-            if (currentData.length === 0) {
-                statsEl.innerHTML = '<p class="text-gray-400 text-sm italic">No scans yet in this mode.</p>';
-                return;
-            }
-
-            const counts = {};
-            currentData.forEach(item => {
-                if(!counts[item.courier]) counts[item.courier] = { count: 0, badgeClass: item.badgeClass };
-                counts[item.courier].count++;
-            });
-
-            statsEl.innerHTML = '';
-            for (const [courier, info] of Object.entries(counts)) {
-                statsEl.innerHTML += `
-                    <div class="flex justify-between items-center border-b border-gray-100 pb-2 last:border-0 last:pb-0">
-                        <div class="flex items-center space-x-2">
-                            <span class="w-3 h-3 rounded-full ${info.badgeClass}"></span>
-                            <span class="text-sm font-medium text-gray-700">${courier}</span>
-                        </div>
-                        <span class="font-bold text-gray-900 bg-gray-100 px-2 py-1 rounded">${info.count}</span>
-                    </div>
-                `;
-            }
-        }
-
-        function clearActiveList() {
-            if(confirm(`Are you sure you want to clear all ${currentMode} scans?`)) {
-                data[currentMode] = [];
-                saveToLocalStorage();
-                renderList();
-                renderStats();
-                updateGlobalCounts();
-            }
-            awbInput.focus();
-        }
-
-        function updateGlobalCounts() {
-            document.getElementById('outward-count').innerText = data.outward.length;
-            document.getElementById('inward-count').innerText = data.inward.length;
-        }
-
-        function showMessage(msg, colorClass) {
-            scanMessage.innerText = msg;
-            scanMessage.className = `mt-3 text-sm font-bold h-5 ${colorClass}`;
-            setTimeout(() => { scanMessage.innerText = ''; }, 3500);
-        }
-
-        function playSound(type) {
-            const ctx = new (window.AudioContext || window.webkitAudioContext)();
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
-            osc.connect(gain);
-            gain.connect(ctx.destination);
-
-            if (type === 'success') {
-                osc.type = 'sine';
-                osc.frequency.setValueAtTime(800, ctx.currentTime);
-                osc.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.1);
-                gain.gain.setValueAtTime(0.1, ctx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
-                osc.start(ctx.currentTime);
-                osc.stop(ctx.currentTime + 0.1);
-            } else {
-                osc.type = 'sawtooth';
-                osc.frequency.setValueAtTime(300, ctx.currentTime);
-                osc.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.2);
-                gain.gain.setValueAtTime(0.2, ctx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2);
-                osc.start(ctx.currentTime);
-                osc.stop(ctx.currentTime + 0.2);
-            }
-        }
-
-        function exportCSV() {
-            const currentData = data[currentMode];
-            if (currentData.length === 0) {
-                alert('No data to export.');
-                return;
-            }
-
-            let csvContent = "data:text/csv;charset=utf-8,";
-            csvContent += "Serial Number,Date,Channel,Courier,AWB,Time\n"; 
-
-            currentData.forEach((item, idx) => {
-                let sNo = currentData.length - idx;
-                csvContent += `${sNo},${item.date},${item.seller || 'N/A'},${item.courier},${item.awb},${item.time}\n`;
-            });
-
-            const encodedUri = encodeURI(csvContent);
-            const link = document.createElement("a");
-            link.setAttribute("href", encodedUri);
-            link.setAttribute("download", `warehouse_scans_${currentMode}_${new Date().toISOString().split('T')[0]}.csv`);
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            awbInput.focus();
-        }
-
         window.onload = () => {
             setMode('outward');
             updateGlobalCounts();
+            sessionCountEl.innerText = sessionCount;
         };
     </script>
 </body>
